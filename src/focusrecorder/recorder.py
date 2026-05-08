@@ -13,7 +13,7 @@ from .domain.ports.mouse_provider import MouseProvider
 from .domain.models.recording_session import FrameSample, RecordingSessionState
 from .config.settings import RecordingSettings
 from .infrastructure.filesystem.file_naming import get_next_filename
-from .infrastructure.audio.sounddevice_audio import SounddeviceAudioRecorder, HAS_AUDIO
+from .infrastructure.audio.sounddevice_audio import SounddeviceAudioRecorder, HAS_AUDIO, mix_wav_files
 
 import platform
 IS_WINDOWS = platform.system() == "Windows"
@@ -37,8 +37,14 @@ class FocusRecorder:
         )
 
         self._audio_recorder = None
+        self._system_audio_recorder = None
         if self.settings.audio and HAS_AUDIO:
-            self._audio_recorder = SounddeviceAudioRecorder(device=self.settings.audio_device)
+            mode = getattr(self.settings, "audio_mode", "mic")
+            if mode in ("mic", "both"):
+                self._audio_recorder = SounddeviceAudioRecorder(device=self.settings.audio_device)
+            if mode in ("system", "both"):
+                sys_dev = getattr(self.settings, "system_audio_device", None)
+                self._system_audio_recorder = SounddeviceAudioRecorder(device=sys_dev)
 
         self._temp_writer = None
         self._temp_path = ""
@@ -87,6 +93,8 @@ class FocusRecorder:
         self.mouse_provider.start_listener(self._on_click)
         if self._audio_recorder is not None:
             self._audio_recorder.start()
+        if self._system_audio_recorder is not None:
+            self._system_audio_recorder.start()
 
         self._temp_path = self.filename.replace(".mp4", "_temp_raw.avi")
         fourcc = cv2.VideoWriter_fourcc(*"XVID")  # type: ignore[attr-defined]
@@ -106,9 +114,27 @@ class FocusRecorder:
         self.thread.join()
 
         audio_wav = None
+        mic_wav = None
+        sys_wav = None
         if self._audio_recorder is not None:
-            wav_path = self.filename.replace(".mp4", "_audio.wav")
-            audio_wav = self._audio_recorder.stop(wav_path)
+            wav_path = self.filename.replace(".mp4", "_mic.wav")
+            mic_wav = self._audio_recorder.stop(wav_path)
+        if self._system_audio_recorder is not None:
+            wav_path = self.filename.replace(".mp4", "_sys.wav")
+            sys_wav = self._system_audio_recorder.stop(wav_path)
+
+        if mic_wav and sys_wav:
+            mixed_path = self.filename.replace(".mp4", "_audio.wav")
+            try:
+                audio_wav = mix_wav_files(mic_wav, sys_wav, mixed_path)
+            finally:
+                for p in (mic_wav, sys_wav):
+                    if p and os.path.exists(p):
+                        os.remove(p)
+        elif mic_wav:
+            audio_wav = mic_wav
+        elif sys_wav:
+            audio_wav = sys_wav
 
         self._render_adaptive_video(callback_progress, export_mode)
 
@@ -218,9 +244,14 @@ class FocusRecorder:
 
     @property
     def audio_level(self) -> int:
-        if self._audio_recorder is None:
+        levels = []
+        if self._audio_recorder is not None:
+            levels.append(self._audio_recorder.level)
+        if self._system_audio_recorder is not None:
+            levels.append(self._system_audio_recorder.level)
+        if not levels:
             return 0
-        return self._audio_recorder.level
+        return max(levels)
 
     @property
     def is_recording(self):

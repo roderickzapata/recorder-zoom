@@ -12,6 +12,8 @@ class RecordingSettings:
     custom_name: str = ""
     audio: bool = False
     audio_device: int | None = None
+    audio_mode: str = "mic"
+    system_audio_device: int | None = None
 
 
 @dataclass(frozen=True)

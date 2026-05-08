@@ -8,6 +8,7 @@ DEFAULT_FPS: int = 60
 # UI defaults
 DEFAULT_EXPORT_MODE: str = "full"  # "full", "tiktok", "both"
 DEFAULT_AUDIO: bool = False
+DEFAULT_AUDIO_MODE: str = "mic"
 
 # UI range constraints
 MIN_ZOOM: float = 1.0

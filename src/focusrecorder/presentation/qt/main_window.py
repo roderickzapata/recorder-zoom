@@ -9,7 +9,6 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -34,7 +33,7 @@ from ...config.constants import (
     UI_MIN_SUAVIDAD,
     UI_MIN_ZOOM,
 )
-from ...infrastructure.audio.sounddevice_audio import HAS_AUDIO
+from ...infrastructure.audio.sounddevice_audio import HAS_AUDIO, get_system_audio_devices
 from .recording_presenter import RecordingPresenter
 from .render_thread import RenderThread
 
@@ -270,27 +269,65 @@ class FocusApp(QWidget):
         audio_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 5px;")
         layout.addWidget(audio_label)
 
-        self.audio_checkbox = QCheckBox("Grabar micrófono")
-        self.audio_checkbox.setEnabled(HAS_AUDIO)
+        self.audio_mode_combo = QComboBox()
+        self.audio_mode_combo.setEnabled(HAS_AUDIO)
+        self.audio_mode_combo.addItem("Desactivado", "off")
+        self.audio_mode_combo.addItem("Micrófono", "mic")
+        self.audio_mode_combo.addItem("Audio del sistema", "system")
+        self.audio_mode_combo.addItem("Micrófono + Sistema", "both")
+        self.audio_mode_combo.setStyleSheet(
+            """
+            QComboBox {
+                padding: 8px;
+                font-size: 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
+            }
+            QComboBox:disabled {
+                background: #f5f5f5;
+                color: #999;
+            }
+            """
+        )
         if not HAS_AUDIO:
-            self.audio_checkbox.setText("Grabar micrófono (instala sounddevice)")
-        self.audio_checkbox.setChecked(ui_state["audio"])
-        layout.addWidget(self.audio_checkbox)
+            self.audio_mode_combo.setEnabled(False)
+            self.audio_mode_combo.setToolTip("Instala sounddevice para habilitar audio")
+        layout.addWidget(self.audio_mode_combo)
 
-        self.audio_device_combo = QComboBox()
-        self.audio_device_combo.setVisible(False)
+        self.mic_device_combo = QComboBox()
+        self.mic_device_combo.setVisible(False)
         if HAS_AUDIO:
-            self.audio_device_combo.addItem("Dispositivo por defecto", None)
+            self.mic_device_combo.addItem("Mic por defecto", None)
             try:
                 for i, d in enumerate(sd.query_devices()):
                     if d["max_input_channels"] > 0:
-                        self.audio_device_combo.addItem(d["name"], i)
+                        self.mic_device_combo.addItem(d["name"], i)
             except Exception:
                 pass
-        layout.addWidget(self.audio_device_combo)
-        self.audio_checkbox.toggled.connect(self.audio_device_combo.setVisible)
-        if ui_state["audio"]:
-            self.audio_device_combo.setVisible(True)
+        layout.addWidget(self.mic_device_combo)
+
+        self.sys_device_combo = QComboBox()
+        self.sys_device_combo.setVisible(False)
+        if HAS_AUDIO:
+            sys_devs = get_system_audio_devices()
+            if sys_devs:
+                self.sys_device_combo.addItem("Sistema por defecto", None)
+                for idx, name in sys_devs:
+                    self.sys_device_combo.addItem(name, idx)
+            else:
+                self.sys_device_combo.addItem("No disponible", None)
+                self.sys_device_combo.setEnabled(False)
+        layout.addWidget(self.sys_device_combo)
+
+        self.audio_mode_combo.currentIndexChanged.connect(self._on_audio_mode_changed)
+        saved_audio_mode = ui_state.get("audio_mode", "mic")
+        if saved_audio_mode == "off" or (not ui_state.get("audio", False) and saved_audio_mode == "mic"):
+            saved_audio_mode = "off"
+        mode_index = self.audio_mode_combo.findData(saved_audio_mode)
+        if mode_index >= 0:
+            self.audio_mode_combo.setCurrentIndex(mode_index)
+        self._on_audio_mode_changed()
 
         self.vu_meter = QProgressBar()
         self.vu_meter.setRange(0, 100)
@@ -381,6 +418,13 @@ class FocusApp(QWidget):
         self.adjustSize()
         self._center_on_screen()
 
+    def _on_audio_mode_changed(self):
+        mode = self.audio_mode_combo.currentData()
+        show_mic = mode in ("mic", "both")
+        show_sys = mode in ("system", "both")
+        self.mic_device_combo.setVisible(show_mic)
+        self.sys_device_combo.setVisible(show_sys)
+
     def _get_video_directory_display(self):
         return self.presenter.get_output_dir_display()
 
@@ -397,8 +441,9 @@ class FocusApp(QWidget):
             self.radio_both,
             self.change_dir_btn,
             self.name_input,
-            self.audio_checkbox,
-            self.audio_device_combo,
+            self.audio_mode_combo,
+            self.mic_device_combo,
+            self.sys_device_combo,
         ):
             widget.setEnabled(enabled)
 
@@ -437,13 +482,17 @@ class FocusApp(QWidget):
             self._set_controls_enabled(False)
 
             try:
+                audio_mode = self.audio_mode_combo.currentData()
+                audio_enabled = audio_mode != "off"
                 view_model = self.presenter.start_recording(
                     zoom=self.zoom_spin.value(),
                     suavidad=self.smooth_slider.value(),
                     fps=self.fps_spin.value(),
                     custom_name=self.name_input.text().strip(),
-                    audio=self.audio_checkbox.isChecked(),
-                    audio_device=self.audio_device_combo.currentData() if self.audio_checkbox.isChecked() else None,
+                    audio=audio_enabled,
+                    audio_device=self.mic_device_combo.currentData() if audio_mode in ("mic", "both") else None,
+                    audio_mode=audio_mode if audio_enabled else "mic",
+                    system_audio_device=self.sys_device_combo.currentData() if audio_mode in ("system", "both") else None,
                 )
             except RecordingEnvironmentError as exc:
                 self._set_controls_enabled(True)
@@ -459,7 +508,7 @@ class FocusApp(QWidget):
             self.recording_start_time = time.time()
             self.timer.start(100)
             self.preview_timer.start()
-            if self.audio_checkbox.isChecked():
+            if audio_enabled:
                 self.vu_meter.setVisible(True)
             self.time_counter.setVisible(True)
             self.time_counter.setText("00:00:00")
@@ -529,7 +578,8 @@ class FocusApp(QWidget):
             )
             self.preview_label.setPixmap(pixmap)
 
-        if self.audio_checkbox.isChecked():
+        audio_mode = self.audio_mode_combo.currentData()
+        if audio_mode and audio_mode != "off":
             self.vu_meter.setValue(recorder.audio_level)
 
         self._disk_tick += 1

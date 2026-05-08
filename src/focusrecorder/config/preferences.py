@@ -12,6 +12,7 @@ from .constants import (
     DEFAULT_EXPORT_MODE,
     DEFAULT_OUTPUT_FOLDER_NAME,
     DEFAULT_AUDIO,
+    DEFAULT_AUDIO_MODE,
 )
 from ..infrastructure.system.platform_paths import get_config_directory
 
@@ -91,6 +92,7 @@ def _get_default_preferences() -> dict[str, Any]:
         "export_mode": DEFAULT_EXPORT_MODE,
         "output_dir": str(Path.home() / "Desktop" / DEFAULT_OUTPUT_FOLDER_NAME),
         "audio": DEFAULT_AUDIO,
+        "audio_mode": DEFAULT_AUDIO_MODE,
     }
 
 
@@ -122,5 +124,9 @@ def _merge_with_defaults(user_data: dict[str, Any]) -> dict[str, Any]:
 
     if isinstance(user_data.get("audio"), bool):
         merged["audio"] = user_data["audio"]
+
+    if isinstance(user_data.get("audio_mode"), str):
+        if user_data["audio_mode"] in ("mic", "system", "both"):
+            merged["audio_mode"] = user_data["audio_mode"]
 
     return merged

@@ -42,6 +42,7 @@ def load_user_preferences_as_settings() -> UserPreferences:
         fps=prefs["fps"],
         output_dir=Path(prefs["output_dir"]),
         audio=prefs.get("audio", False),
+        audio_mode=prefs.get("audio_mode", "mic"),
     )
     
     ui_settings = UISettings(export_mode=prefs["export_mode"])
@@ -58,6 +59,7 @@ def save_user_preferences_from_settings(preferences: UserPreferences) -> None:
         "output_dir": str(preferences.recording.output_dir),
         "export_mode": preferences.ui.export_mode,
         "audio": preferences.recording.audio,
+        "audio_mode": preferences.recording.audio_mode,
     }
     save_user_preferences(prefs_dict)
 
@@ -75,6 +77,7 @@ def with_recording_overrides(
     suavidad: float | None = None,
     fps: int | None = None,
     audio: bool | None = None,
+    audio_mode: str | None = None,
 ) -> RecordingSettings:
     """Create a new RecordingSettings with overridden values."""
     updates = {}
@@ -86,6 +89,8 @@ def with_recording_overrides(
         updates["fps"] = fps
     if audio is not None:
         updates["audio"] = audio
+    if audio_mode is not None:
+        updates["audio_mode"] = audio_mode
     return replace(settings, **updates)
 
 
@@ -111,6 +116,10 @@ def coerce_recording_settings(config) -> RecordingSettings:
             updates["audio"] = config["audio"]
         if "audio_device" in config:
             updates["audio_device"] = config["audio_device"]
+        if "audio_mode" in config:
+            updates["audio_mode"] = config["audio_mode"]
+        if "system_audio_device" in config:
+            updates["system_audio_device"] = config["system_audio_device"]
         if "custom_name" in config:
             updates["custom_name"] = config["custom_name"]
         return replace(settings, **updates)
