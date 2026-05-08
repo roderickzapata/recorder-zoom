@@ -11,7 +11,7 @@ except ImportError:
 
 
 class SounddeviceAudioRecorder:
-    SAMPLERATE = 44100
+    SAMPLERATE = 48000
     CHANNELS = 1
 
     def __init__(self, device=None):
