@@ -11,14 +11,13 @@ except ImportError:
 
 
 class SounddeviceAudioRecorder:
-    SAMPLERATE = 48000
-    CHANNELS = 1
-
     def __init__(self, device=None):
         self.device = device
         self._frames = []
         self._level = 0
         self._stream = None
+        self._actual_samplerate = 44100
+        self._actual_channels = 1
 
     @property
     def level(self) -> int:
@@ -27,11 +26,21 @@ class SounddeviceAudioRecorder:
     def start(self):
         if not HAS_AUDIO:
             return
+        
+        # Detectar capacidades del dispositivo
+        try:
+            device_info = sd.query_devices(self.device, 'input')
+            self._actual_samplerate = int(device_info['default_samplerate'])
+            self._actual_channels = min(device_info['max_input_channels'], 2)
+        except Exception:
+            self._actual_samplerate = 48000
+            self._actual_channels = 1
+
         self._frames = []
         self._stream = sd.InputStream(
             device=self.device,
-            samplerate=self.SAMPLERATE,
-            channels=self.CHANNELS,
+            samplerate=self._actual_samplerate,
+            channels=self._actual_channels,
             dtype="int16",
             callback=self._callback,
         )
@@ -48,9 +57,9 @@ class SounddeviceAudioRecorder:
 
         audio_data = np.concatenate(self._frames, axis=0)
         with wave.open(output_path, "w") as wf:
-            wf.setnchannels(self.CHANNELS)
+            wf.setnchannels(self._actual_channels)
             wf.setsampwidth(2)
-            wf.setframerate(self.SAMPLERATE)
+            wf.setframerate(self._actual_samplerate)
             wf.writeframes(audio_data.tobytes())
 
         return output_path
